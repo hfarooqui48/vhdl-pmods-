@@ -1,0 +1,185 @@
+/***************************** Include Files *******************************/
+
+#include <stdio.h>
+#include "PmodRTCC.h"
+#include "PmodOLED.h"
+#include "sleep.h"
+#include "xil_cache.h"
+#include "xil_printf.h"
+#include "xparameters.h"
+#include "math.h"
+
+/*************************** Type Declarations *****************************/
+
+typedef struct RTCC_Time {
+   u8 second;
+   u8 minute;
+   u8 hour;
+   u8 ampm;
+} RTCC_Time;
+
+/************************** Global Declarations ****************************/
+
+#define SET_RTCC 1
+PmodOLED myDevice;
+PmodRTCC rtc;
+
+/************************** Function Declarations ***************************/
+
+void ProjectRun();
+void ProjectInitialize(u8 mode);
+void EnableCaches();
+void DisableCaches();
+
+RTCC_Time GetTime(PmodRTCC *InstancePtr, RTCC_Target src);
+RTCC_Time IncrementTime(RTCC_Time time, int delta_seconds);
+void SetTime(PmodRTCC *InstancePtr, RTCC_Target dest, RTCC_Time val);
+void PrintTime(RTCC_Target src);
+u8 bcd2int(u8 data);
+u8 int2bcd(u8 data);
+const u8 orientation = 0x0;
+const u8 invert = 0x0;
+
+/************************** Function Definitions ****************************/
+
+int main() {
+   ProjectInitialize(SET_RTCC);
+   ProjectRun();
+   return 0;
+}
+
+void Projectinitialize(u8 mode) {
+   RTCC_Time time;
+
+   RTCC_begin(&rtc, XPAR_PMODRTCC_0_AXI_LITE_IIC_BASEADDR, 0x6F);
+   OLED_Begin(&myDevice, XPAR_PMODOLED_0_AXI_LITE_GPIO_BASEADDR,
+               XPAR_PMODOLED_0_AXI_LITE_SPI_BASEADDR, orientation, invert);
+
+   if (!RTCC_checkVbat(&rtc) || mode) {
+
+      RTCC_stopClock(&rtc);
+
+      time.second = 0x00;
+      time.minute = 0x00;
+      time.hour   = 0x08;
+      time.ampm   = RTCC_PM;
+	  
+      time = IncrementTime(time, 0);
+      SetTime(&rtc, RTCC_TARGET_RTCC, time);
+
+      RTCC_startClock(&rtc);
+      RTCC_enableVbat(&rtc);  
+   } 
+   else {
+      time = GetTime(&rtc, RTCC_TARGET_RTCC);
+   }
+
+   time = IncrementTime(time, 30);
+   SetTime(&rtc, RTCC_TARGET_ALM0, time);
+   RTCC_enableVbat(&rtc);
+}
+
+void ProjectRun() {
+	   RTCC_Time time;
+	   
+	   while (1) {
+	      OLED_SetCharUpdate(&myDevice, 0);
+	         OLED_ClearBuffer(&myDevice);
+	         time = GetTime(&rtc, RTCC_TARGET_RTCC);
+	         OLED_SetCursor(&myDevice, 0, 0);
+	         OLED_PutString(&myDevice, "Hammad Farooqui");
+	         OLED_SetCursor(&myDevice, 0, 1);
+	         OLED_PutString(&myDevice, "Embedded Systems");
+	         OLED_SetCursor(&myDevice, 0, 2);
+	         OLED_PutString(&myDevice, "Project Demo");
+	         OLED_SetCursor(&myDevice, 0, 3);
+	         OLED_PutString(&myDevice, "Time:");
+	         int hr2=bcd2int(time.hour), hr1=0;
+	         int mn2=bcd2int(time.minute), mn1=0;
+	         int sc2=bcd2int(time.second), sc1=0;
+	         for (hr2>9 && hr2>12){
+	       		 time.ampm = RTCC_PM
+	        	 hr1 = floor(hr2 / 10);
+	        	 hr2 = hr2 % 10;
+	         }
+	         for (mn2>9){
+	             mn1 = floor(mn2 / 10);
+	             mn2 = mn2 % 10;
+	         }
+	         for (sc2>9){
+	             sc1 = floor(sc2 / 10);
+	           	 sc2 = sc2 % 10;
+	         }
+	         hr1 = hr1 + 48;
+	         hr2 = hr2 + 48;
+	         mn1 = mn1 + 48;
+	         mn2 = mn2 + 48;
+	         sc1 = sc1 + 48;
+	         sc2 = sc2 + 48;
+	         OLED_PutChar(&myDevice, hr1);
+	         OLED_PutChar(&myDevice, hr2);
+			 OLED_PutChar(&myDevice, ':');
+			 OLED_PutChar(&myDevice, mn1);
+			 OLED_PutChar(&myDevice, mn2);
+			 OLED_PutChar(&myDevice, ';');
+			 OLED_PutChar(&myDevice, sc1);
+			 OLED_PutChar(&myDevice, sc2);
+			 while (time.ampm) {
+				OLED_PutString(&myDevice, " PM");
+			 } 
+			 while {!time.ampm) {
+				OLED_PutString(&myDevice, " AM");
+			 }
+			 OLED_SetCursor(&myDevice, 0, 0);
+	         OLED_Update(&myDevice);
+	         time = IncrementTime(time, 1);
+	         usleep(100000);
+	      }
+}
+
+RTCC_Time GetTime(PmodRTCC *InstancePtr, RTCC_Target src) {
+   RTCC_Time val;
+
+   val.second = RTCC_getSec(&rtc, src);
+   val.minute = RTCC_getMin(&rtc, src);
+   val.hour   = RTCC_getHour(&rtc, src);
+   val.ampm   = RTCC_getAmPm(&rtc, src);
+
+   return val;
+}
+
+void SetTime(PmodRTCC *InstancePtr, RTCC_Target dest, RTCC_Time val) {
+   
+   RTCC_setSec(&rtc, dest, val.second);
+   RTCC_setMin(&rtc, dest, val.minute);
+   RTCC_setHour12(&rtc, dest, val.hour, val.ampm);
+   RTCC_setDay(&rtc, dest, val.day);
+   RTCC_setDate(&rtc, dest, val.date);
+   RTCC_setMonth(&rtc, dest, val.month);
+
+   if (dest == RTCC_TARGET_RTCC) {
+      RTCC_setYear(&rtc, val.year);
+   }
+}
+
+
+RTCC_Time IncrementTime(RTCC_Time time, int delta_seconds) {
+   RTCC_Time result;
+   int temp;
+   result = time;
+   temp = bcd2int(result.second) + delta_seconds;
+   result.second = int2bcd(temp % 60);          // Convert seconds
+   temp = bcd2int(result.minute) + temp / 60;   // Carry seconds -> minutes
+   result.minute = int2bcd(temp % 60);          // Convert minutes
+   temp = bcd2int(result.hour) + temp / 60 - 1; // Carry minutes -> hours
+   result.hour = int2bcd((temp % 12) + 1);      // Convert hours
+   return result;
+}
+
+u8 bcd2int(u8 data) {
+   return ((data >> 4) * 10) + (data & 0xF);
+}
+
+u8 int2bcd(u8 data) {
+   return (((data / 10) & 0xF) << 4) + ((data % 10) & 0xF);
+}
